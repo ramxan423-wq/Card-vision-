@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
   void scanScreen(){pendingPhoto="";screen(batchMode?"Toplu kart tarama":"Kart tara");content.addView(label("Kamerayla çek veya galeriden fotoğraf seç. Cihaz üzerinde OCR yapılır; kart eşleşmesi henüz doğrulanmaz.",16,false));button("Kamera ile çek",()->{Intent camera=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);try{File dir=new File(getFilesDir(),"card_photos");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Klasör oluşturulamadı");File file=new File(dir,UUID.randomUUID()+".jpg");cameraPhoto=file.getAbsolutePath();Uri output=FileProvider.getUriForFile(this,"com.cardvision.ai.fileprovider",file);camera.putExtra(android.provider.MediaStore.EXTRA_OUTPUT,output);camera.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(camera,402);}catch(Exception e){cameraPhoto="";message("Kamera açılamadı: "+e.getMessage());}});button("Fotoğraf seç",()->{Intent i=new Intent(Intent.ACTION_GET_CONTENT);i.setType("image/*");startActivityForResult(Intent.createChooser(i,"Kart fotoğrafı"),401);});button(batchMode?"Toplu taramayı bitir":"⇄ Toplu tarama moduna geç",()->{if(batchMode){batchMode=false;home();}else{batchMode=true;scanScreen();}});button("← Ana sayfa",()->{batchMode=false;home();});}
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
-    if(result!=RESULT_OK){pendingPhoto="";cameraPhoto="";photoTargetCardId="";photoTargetSide="";return;}
+    if(result!=RESULT_OK){pendingPhoto="";if(!cameraPhoto.isEmpty())new File(cameraPhoto).delete();cameraPhoto="";photoTargetCardId="";photoTargetSide="";listingPhotoTarget="";return;}
     try{
       InputImage image;
       if(request==403||request==404){Uri uri=data==null?null:data.getData();if(uri==null)return;String path=copyCardPhoto(uri);if(request==403)saveCardSidePhoto(path);else saveListingPhoto(path);return;}
@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
         if(uri==null){pendingPhoto="";message("Fotoğraf seçilmedi");return;}
         pendingPhoto=copyCardPhoto(uri);image=InputImage.fromFilePath(this,uri);
       }else if(request==402){
-        if(cameraPhoto.isEmpty()||!new File(cameraPhoto).exists()||new File(cameraPhoto).length()==0){message("Kamera fotoğrafı alınamadı");cameraPhoto="";return;}
+        if(cameraPhoto.isEmpty()||!new File(cameraPhoto).exists()||new File(cameraPhoto).length()==0){message("Kamera fotoğrafı alınamadı");if(!cameraPhoto.isEmpty())new File(cameraPhoto).delete();cameraPhoto="";return;}
         pendingPhoto=cameraPhoto;cameraPhoto="";
         image=InputImage.fromFilePath(this,Uri.fromFile(new File(pendingPhoto)));
       }else return;
