@@ -74,11 +74,21 @@ public class MainActivity extends Activity {
   String copyCardPhoto(Uri uri)throws IOException{
     File dir=new File(getFilesDir(),"card_photos");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Fotoğraf klasörü oluşturulamadı");
     File dest=new File(dir,UUID.randomUUID().toString()+".jpg");
-    try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(dest)){
+    try(InputStream in=getContentResolver().openInputStream(uri)){
       if(in==null)throw new IOException("Fotoğraf okunamadı");
-      byte[] buf=new byte[8192];int n;long total=0;
-      while((n=in.read(buf))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Fotoğraf 20 MB sınırını aşıyor");out.write(buf,0,n);}
-    }catch(IOException e){dest.delete();throw e;}
+      BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;
+      BitmapFactory.decodeStream(in,null,opts);
+      if(opts.outWidth<=0||opts.outHeight<=0)throw new IOException("Geçersiz fotoğraf");
+      int sample=1;while(opts.outWidth/sample>2400||opts.outHeight/sample>2400)sample*=2;
+      BitmapFactory.Options decoded=new BitmapFactory.Options();decoded.inSampleSize=sample;
+      try(InputStream source=getContentResolver().openInputStream(uri)){
+        if(source==null)throw new IOException("Fotoğraf okunamadı");
+        Bitmap bitmap=BitmapFactory.decodeStream(source,null,decoded);
+        if(bitmap==null)throw new IOException("Fotoğraf çözümlenemedi");
+        try(OutputStream out=new FileOutputStream(dest)){if(!bitmap.compress(Bitmap.CompressFormat.JPEG,88,out))throw new IOException("Fotoğraf kaydedilemedi");}
+        finally{bitmap.recycle();}
+      }
+    }catch(Exception e){dest.delete();if(e instanceof IOException)throw (IOException)e;throw new IOException("Fotoğraf dönüştürülemedi",e);}
     return dest.getAbsolutePath();
   }
   String saveCardBitmap(Bitmap bmp)throws IOException{
