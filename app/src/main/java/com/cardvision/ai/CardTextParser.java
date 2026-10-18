@@ -13,10 +13,15 @@ public final class CardTextParser {
   public static CardTextParser parse(String input){
     String raw=input==null?"":input.trim();
     String year=match(raw,"\\b(?:19[5-9][0-9]|20[0-3][0-9])\\b");
-    String number=match(raw,"(?i)(?:#|no\\.?\\s*|card\\s*#\\s*)([A-Z0-9-]{1,12})\\b");
+    // OCR frequently reads card numbers as "Card No. 12", "#12", or "12/250".
+    String number=match(raw,"(?i)(?:\\bcard\\s*(?:no\\.?|number|#)|\\bno\\.?|\\bnumber|#)\\s*[:#-]?\\s*([A-Z0-9][A-Z0-9-]{0,11})\\b");
+    if(number.isEmpty())number=match(raw,"(?i)\\b([A-Z]?[0-9]{1,3}[A-Z]?)\\s*/\\s*[0-9]{1,4}\\b");
     String[] brands={"Topps","Panini","Upper Deck","Bowman","Donruss","Prizm","Select","Optic","Fleer","Pokémon","Pokemon","Magic","Yu-Gi-Oh"};
     String brand="";
-    for(String b:brands)if(raw.toLowerCase(Locale.ROOT).contains(b.toLowerCase(Locale.ROOT))){brand=b;break;}
+    for(String b:brands){
+      Pattern p=Pattern.compile("(?iu)(?<![\\p{L}\\p{N}])"+Pattern.quote(b)+"(?![\\p{L}\\p{N}])");
+      if(p.matcher(raw).find()){brand=b;break;}
+    }
     String category="Belirsiz";
     String low=raw.toLowerCase(Locale.ROOT);
     if(low.contains("pokemon")||low.contains("pokémon")||low.contains("hp "))category="Pokémon";
@@ -28,7 +33,11 @@ public final class CardTextParser {
     String name="";
     for(String line:raw.split("\\R")){
       String v=line.trim();
-      if(v.length()>2 && v.length()<65 && !v.matches(".*\\d{4}.*") && !v.matches("(?i)^(topps|panini|prizm|upper deck|bowman)$")){name=v;break;}
+      if(v.length()<3||v.length()>64||!v.matches(".*[\\p{L}].*"))continue;
+      if(v.matches(".*\\b(?:19[5-9][0-9]|20[0-3][0-9])\\b.*"))continue;
+      if(v.matches("(?i)^(?:card\\s*)?(?:no\\.?|number|#)\\s*[:#-]?\\s*[a-z0-9/-]+$"))continue;
+      if(v.matches("(?i)^(?:(?:topps|panini|prizm|upper|deck|bowman|donruss|select|optic|fleer|nba|nfl|mlb|pokemon|pokémon|yu-gi-oh)\\s*)+$"))continue;
+      name=v;break;
     }
     return new CardTextParser(raw,name,year,number,brand,category);
   }
