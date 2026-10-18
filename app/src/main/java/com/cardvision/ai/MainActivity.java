@@ -38,19 +38,19 @@ public class MainActivity extends Activity {
   EditText field(String hint){EditText e=new EditText(this);e.setHint(hint);content.addView(e);return e;}
   void message(String text){new AlertDialog.Builder(this).setMessage(text).setPositiveButton("Tamam",null).show();}
   void home(){screen("CardVision AI");content.addView(label("Kartlarını keşfet, koleksiyonunu yönet",16,false));stat("Koleksiyonumdaki kartlar",String.valueOf(cards.length()));button("📷 Kart tara (OCR)",()->scan());button("＋ Kart ekle",()->add());button("▦ Koleksiyonum ("+cards.length()+")",()->collection(""));button("⌕ Kart ara",()->search());button("▤ Klasörler / etiketler",()->folders());button("✓ Set kontrol listesi",()->checklists());button("♡ İstek listem",()->wishlist());button("↧ JSON yedek içe aktar",()->importBackup());button("☆ Favoriler",()->favorites());button("◷ Portföy değeri",()->portfolio());button("⇧ Koleksiyonu paylaş",()->export());button("CSV dışa aktar",()->exportCsv());button("Satış ilanı taslaklarım",()->listings());button("⚙ Entegrasyon durumu",()->status());button(dark?"☀ Açık tema":"☾ Koyu tema",()->{dark=!dark;prefs.edit().putBoolean("dark",dark).apply();home();});}
-  void scan(){screen("Kart tara");content.addView(label("Kartın fotoğrafını galeriden seç. Cihaz üzerinde yazılar okunacak; oyuncu ve kart varyantı otomatik doğrulanmaz.",16,false));button("Kamera ile çek",()->{Intent camera=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);try{startActivityForResult(camera,402);}catch(android.content.ActivityNotFoundException e){message("Kamera uygulaması bulunamadı");}});button("Fotoğraf seç",()->{Intent i=new Intent(Intent.ACTION_GET_CONTENT);i.setType("image/*");startActivityForResult(Intent.createChooser(i,"Kart fotoğrafı"),401);});button("← Ana sayfa",()->home());}
+  void scan(){pendingPhoto="";screen("Kart tara");content.addView(label("Kamerayla çek veya galeriden fotoğraf seç. Cihaz üzerinde OCR yapılır; kart eşleşmesi henüz doğrulanmaz.",16,false));button("Kamera ile çek",()->{Intent camera=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);try{startActivityForResult(camera,402);}catch(android.content.ActivityNotFoundException e){message("Kamera uygulaması bulunamadı");}});button("Fotoğraf seç",()->{Intent i=new Intent(Intent.ACTION_GET_CONTENT);i.setType("image/*");startActivityForResult(Intent.createChooser(i,"Kart fotoğrafı"),401);});button("← Ana sayfa",()->home());}
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
-    if(result!=RESULT_OK||data==null)return;
+    if(result!=RESULT_OK||data==null){pendingPhoto="";return;}
     try{
       InputImage image;
       if(request==401){
         Uri uri=data.getData();
-        if(uri==null){message("Fotoğraf seçilmedi");return;}
+        if(uri==null){pendingPhoto="";message("Fotoğraf seçilmedi");return;}
         pendingPhoto=copyCardPhoto(uri);image=InputImage.fromFilePath(this,uri);
       }else if(request==402){
         Object thumb=data.getExtras()==null?null:data.getExtras().get("data");
-        if(!(thumb instanceof Bitmap)){message("Kamera fotoğrafı alınamadı");return;}
+        if(!(thumb instanceof Bitmap)){pendingPhoto="";message("Kamera fotoğrafı alınamadı");return;}
         pendingPhoto=saveCardBitmap((Bitmap)thumb);image=InputImage.fromBitmap((Bitmap)thumb,0);
       }else return;
       com.google.mlkit.vision.text.TextRecognizer recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
@@ -60,9 +60,9 @@ public class MainActivity extends Activity {
         content.addView(label(value.isEmpty()?"Yazı bulunamadı. Daha net bir fotoğraf dene.":"OCR sonucu:\\n"+value,16,false));
         if(!value.trim().isEmpty())button("Kartı koleksiyona ekle",()->addFromScan(value));
         button("← Tekrar tara",()->scan());
-      }).addOnFailureListener(err->message("OCR hatası: "+err.getMessage()))
+      }).addOnFailureListener(err->{pendingPhoto="";message("OCR hatası: "+err.getMessage());})
         .addOnCompleteListener(task->recognizer.close());
-    }catch(Exception e){message("Fotoğraf işlenemedi: "+e.getMessage());}
+    }catch(Exception e){pendingPhoto="";message("Fotoğraf işlenemedi: "+e.getMessage());}
   }
   String copyCardPhoto(Uri uri)throws IOException{
     File dir=new File(getFilesDir(),"card_photos");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Fotoğraf klasörü oluşturulamadı");
