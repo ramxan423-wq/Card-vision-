@@ -108,14 +108,18 @@ public class MainActivity extends Activity {
     if(order.equals("Ad (Z-A)"))sorter=sorter.reversed();
     else if(order.equals("Yıl (yeni)"))sorter=(x,y)->y.optString("year").compareTo(x.optString("year"));
     else if(order.equals("Fiyat (yüksek)"))sorter=(x,y)->Double.compare(amount(y.optString("price")),amount(x.optString("price")));
-    Collections.sort(matches,sorter);
+    final Comparator<JSONObject> baseSorter=sorter;
+    Collections.sort(matches,(x,y)->{int pinned=Boolean.compare(y.optBoolean("pinned"),x.optBoolean("pinned"));return pinned!=0?pinned:baseSorter.compare(x,y);});
     content.addView(label("Bulunan kart: "+matches.size(),15,false));
     button("Sıralama: "+order,()->new AlertDialog.Builder(this).setTitle("Sıralama").setItems(new String[]{"Ad (A-Z)","Ad (Z-A)","Yıl (yeni)","Fiyat (yüksek)"},(d,which)->collectionFiltered(query,category,folder,new String[]{"Ad (A-Z)","Ad (Z-A)","Yıl (yeni)","Fiyat (yüksek)"}[which])).show());
     for(JSONObject o:matches){
       final String id=o.optString("id");
       showCardPhoto(o);
       content.addView(label(o.optString("name")+"  ·  "+o.optString("year")+" "+o.optString("brand")+"  ·  $"+o.optString("price"),17,true));
+      content.addView(label("📍 Saklama yeri: "+o.optString("storageLocation","Belirtilmedi")+(o.optBoolean("pinned")?"  •  📌 Sabitlenmiş":""),13,false));
       content.addView(label("Klasör: "+o.optString("folder","—")+"  •  Kondisyon: "+o.optString("grade","—")+"\\nNot: "+o.optString("notes",""),13,false));
+      button(o.optBoolean("pinned")?"📌 Sabitlemeyi kaldır":"📌 Üste sabitle",()->togglePin(id));
+      button("📍 Saklama yerini düzenle",()->editStorage(id));
       button("☆ Favori / kaldır",()->toggle(id));
       button("Kartı düzenle",()->edit(id));
       button("İstek listesine ekle",()->wishAdd(id));
@@ -125,6 +129,8 @@ public class MainActivity extends Activity {
     button("＋ Yeni kart",()->add());button("⌕ Filtrele",()->search());button("← Ana sayfa",()->home());
   }
   double amount(String v){try{return Double.parseDouble(v.trim().replace(",","."));}catch(Exception e){return 0;}}
+  void togglePin(String id){for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o!=null&&id.equals(o.optString("id"))){try{o.put("pinned",!o.optBoolean("pinned"));}catch(Exception ignored){}break;}}save();collection("");}
+  void editStorage(String id){for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o==null||!id.equals(o.optString("id")))continue;final JSONObject card=o;EditText input=new EditText(this);input.setSingleLine(false);input.setHint("Örn. Raf A / Kutu 3 / Sıra 12");input.setText(o.optString("storageLocation"));new AlertDialog.Builder(this).setTitle("Kartın saklama yeri").setView(input).setNegativeButton("İptal",null).setPositiveButton("Kaydet",(d,w)->{try{card.put("storageLocation",input.getText().toString().trim());save();collection("");}catch(Exception e){message("Kaydedilemedi");}}).show();return;}}
   void toggle(String id){for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o!=null&&id.equals(o.optString("id"))){try{o.put("favorite",!o.optBoolean("favorite"));}catch(Exception ignored){}break;}}save();collection("");}
   void delete(String id){new AlertDialog.Builder(this).setMessage("Kart silinsin mi?").setNegativeButton("İptal",null).setPositiveButton("Sil",(d,w)->{JSONArray next=new JSONArray();for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o!=null&&!id.equals(o.optString("id")))next.put(o);}cards=next;save();collection("");}).show();}
   JSONArray wishData(){try{return new JSONArray(prefs.getString("wish_items","[]"));}catch(Exception e){return new JSONArray();}}
