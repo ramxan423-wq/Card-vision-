@@ -5,6 +5,8 @@ import android.os.*;
 import android.content.*;
 import android.graphics.Color;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import java.io.*;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -21,6 +23,7 @@ public class MainActivity extends Activity {
   JSONArray cards;
   int blue=Color.rgb(38,99,235), ink=Color.rgb(22,34,57); boolean dark=false;
   android.content.SharedPreferences prefs;
+  String pendingPhoto="";
   @Override public void onCreate(Bundle b){super.onCreate(b);prefs=getSharedPreferences("cards",MODE_PRIVATE);load();dark=prefs.getBoolean("dark",false);home();}
   void load(){try{cards=new JSONArray(prefs.getString("items","[]"));}catch(Exception e){cards=new JSONArray();}}
   void save(){prefs.edit().putString("items",cards.toString()).apply();}
@@ -44,11 +47,11 @@ public class MainActivity extends Activity {
       if(request==401){
         Uri uri=data.getData();
         if(uri==null){message("Fotoğraf seçilmedi");return;}
-        image=InputImage.fromFilePath(this,uri);
+        pendingPhoto=copyCardPhoto(uri);image=InputImage.fromFilePath(this,uri);
       }else if(request==402){
         Object thumb=data.getExtras()==null?null:data.getExtras().get("data");
         if(!(thumb instanceof Bitmap)){message("Kamera fotoğrafı alınamadı");return;}
-        image=InputImage.fromBitmap((Bitmap)thumb,0);
+        pendingPhoto=saveCardBitmap((Bitmap)thumb);image=InputImage.fromBitmap((Bitmap)thumb,0);
       }else return;
       com.google.mlkit.vision.text.TextRecognizer recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
       recognizer.process(image).addOnSuccessListener(resultText->{
@@ -61,7 +64,31 @@ public class MainActivity extends Activity {
         .addOnCompleteListener(task->recognizer.close());
     }catch(Exception e){message("Fotoğraf işlenemedi: "+e.getMessage());}
   }
-  void addFromScan(String value){screen("Taramadan kart ekle");EditText name=field("Kart adı / oyuncu"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),price=field("Tahmini değer (USD)");CardTextParser parsed=CardTextParser.parse(value);name.setText(parsed.name);sport.setText(parsed.category.equals("Belirsiz")?"":parsed.category);brand.setText(parsed.brand);year.setText(parsed.year);number.setText(parsed.number);content.addView(label("OCR tahmini: Lütfen kart adını, yılı ve numarasını kontrol et. Katalog eşleşmesi doğrulanmadı.",14,false));button("Koleksiyona kaydet",()->{if(name.getText().toString().trim().isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",name.getText().toString().trim());o.put("sport",sport.getText().toString());o.put("brand",brand.getText().toString());o.put("year",year.getText().toString());o.put("number",number.getText().toString());o.put("price",price.getText().toString());o.put("ocr",value);o.put("favorite",false);String key=o.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+o.optString("year")+"|"+o.optString("number");boolean duplicate=false;for(int i=0;i<cards.length();i++){JSONObject old=cards.optJSONObject(i);if(old!=null&&(old.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+old.optString("year")+"|"+old.optString("number")).equals(key)){duplicate=true;break;}}if(duplicate){new AlertDialog.Builder(this).setTitle("Benzer kart var").setMessage("Koleksiyonunda aynı isim, yıl ve numaraya sahip bir kart var. Yine de eklensin mi?").setNegativeButton("İptal",null).setPositiveButton("Ekle",(d,w)->{cards.put(o);save();home();}).show();}else{cards.put(o);save();home();}}catch(Exception e){message("Kaydedilemedi");}});}
+  String copyCardPhoto(Uri uri)throws IOException{
+    File dir=new File(getFilesDir(),"card_photos");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Fotoğraf klasörü oluşturulamadı");
+    File dest=new File(dir,UUID.randomUUID().toString()+".jpg");
+    try(InputStream in=getContentResolver().openInputStream(uri);OutputStream out=new FileOutputStream(dest)){
+      if(in==null)throw new IOException("Fotoğraf okunamadı");
+      byte[] buf=new byte[8192];int n;long total=0;
+      while((n=in.read(buf))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Fotoğraf 20 MB sınırını aşıyor");out.write(buf,0,n);}
+    }catch(IOException e){dest.delete();throw e;}
+    return dest.getAbsolutePath();
+  }
+  String saveCardBitmap(Bitmap bmp)throws IOException{
+    File dir=new File(getFilesDir(),"card_photos");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Fotoğraf klasörü oluşturulamadı");
+    File dest=new File(dir,UUID.randomUUID().toString()+".jpg");
+    try(OutputStream out=new FileOutputStream(dest)){if(!bmp.compress(Bitmap.CompressFormat.JPEG,90,out))throw new IOException("Fotoğraf kaydedilemedi");}
+    return dest.getAbsolutePath();
+  }
+  void showCardPhoto(JSONObject card){
+    String path=card.optString("photo");if(path.isEmpty())return;
+    File file=new File(path);if(!file.exists())return;
+    BitmapFactory.Options opts=new BitmapFactory.Options();opts.inJustDecodeBounds=true;BitmapFactory.decodeFile(path,opts);
+    opts.inSampleSize=1;while(opts.outWidth/opts.inSampleSize>800||opts.outHeight/opts.inSampleSize>800)opts.inSampleSize*=2;
+    opts.inJustDecodeBounds=false;Bitmap bmp=BitmapFactory.decodeFile(path,opts);
+    if(bmp!=null){ImageView view=new ImageView(this);view.setImageBitmap(bmp);view.setAdjustViewBounds(true);view.setMaxHeight(500);content.addView(view);}
+  }
+  void addFromScan(String value){screen("Taramadan kart ekle");EditText name=field("Kart adı / oyuncu"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),price=field("Tahmini değer (USD)");CardTextParser parsed=CardTextParser.parse(value);name.setText(parsed.name);sport.setText(parsed.category.equals("Belirsiz")?"":parsed.category);brand.setText(parsed.brand);year.setText(parsed.year);number.setText(parsed.number);content.addView(label("OCR tahmini: Lütfen kart adını, yılı ve numarasını kontrol et. Katalog eşleşmesi doğrulanmadı.",14,false));button("Koleksiyona kaydet",()->{if(name.getText().toString().trim().isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",name.getText().toString().trim());o.put("sport",sport.getText().toString());o.put("brand",brand.getText().toString());o.put("year",year.getText().toString());o.put("number",number.getText().toString());o.put("price",price.getText().toString());o.put("ocr",value);o.put("photo",pendingPhoto);o.put("favorite",false);String key=o.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+o.optString("year")+"|"+o.optString("number");boolean duplicate=false;for(int i=0;i<cards.length();i++){JSONObject old=cards.optJSONObject(i);if(old!=null&&(old.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+old.optString("year")+"|"+old.optString("number")).equals(key)){duplicate=true;break;}}if(duplicate){new AlertDialog.Builder(this).setTitle("Benzer kart var").setMessage("Koleksiyonunda aynı isim, yıl ve numaraya sahip bir kart var. Yine de eklensin mi?").setNegativeButton("İptal",null).setPositiveButton("Ekle",(d,w)->{cards.put(o);save();home();}).show();}else{cards.put(o);save();home();}}catch(Exception e){message("Kaydedilemedi");}});}
   void add(){screen("Yeni kart");EditText name=field("Kart / oyuncu adı"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),variant=field("Varyant / parallel"),price=field("Tahmini değer (USD)"),cost=field("Alış fiyatı (USD)"),folder=field("Klasör"),notes=field("Notlar"),grade=field("Kondisyon / grading");button("Kartı kaydet",()->{String n=name.getText().toString().trim();if(n.isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",n);o.put("sport",sport.getText());o.put("brand",brand.getText());o.put("year",year.getText());o.put("number",number.getText());o.put("variant",variant.getText());o.put("price",price.getText().toString());o.put("cost",cost.getText().toString());o.put("folder",folder.getText().toString());o.put("notes",notes.getText().toString());o.put("grade",grade.getText().toString());o.put("favorite",false);cards.put(o);save();home();}catch(Exception e){message("Kaydedilemedi");}});button("← Geri",()->home());}
   void search(){screen("Gelişmiş kart arama");EditText q=field("Kart, oyuncu, marka, yıl, numara");EditText category=field("Spor / kategori (isteğe bağlı)");EditText folder=field("Klasör (isteğe bağlı)");button("Ara",()->collectionFiltered(q.getText().toString(),category.getText().toString(),folder.getText().toString(),"Ad (A-Z)"));button("← Ana sayfa",()->home());}
   void collection(String query){collectionFiltered(query,"","","Ad (A-Z)");}
@@ -84,6 +111,7 @@ public class MainActivity extends Activity {
     button("Sıralama: "+order,()->new AlertDialog.Builder(this).setTitle("Sıralama").setItems(new String[]{"Ad (A-Z)","Ad (Z-A)","Yıl (yeni)","Fiyat (yüksek)"},(d,which)->collectionFiltered(query,category,folder,new String[]{"Ad (A-Z)","Ad (Z-A)","Yıl (yeni)","Fiyat (yüksek)"}[which])).show());
     for(JSONObject o:matches){
       final String id=o.optString("id");
+      showCardPhoto(o);
       content.addView(label(o.optString("name")+"  ·  "+o.optString("year")+" "+o.optString("brand")+"  ·  $"+o.optString("price"),17,true));
       content.addView(label("Klasör: "+o.optString("folder","—")+"  •  Kondisyon: "+o.optString("grade","—")+"\\nNot: "+o.optString("notes",""),13,false));
       button("☆ Favori / kaldır",()->toggle(id));
