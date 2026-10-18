@@ -1,7 +1,5 @@
-name: Android APK
+name: Android APK (manual only)
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 jobs:
   build:
