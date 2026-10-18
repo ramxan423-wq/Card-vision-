@@ -4,6 +4,7 @@ import android.app.*;
 import android.os.*;
 import android.content.*;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -34,8 +35,32 @@ public class MainActivity extends Activity {
   EditText field(String hint){EditText e=new EditText(this);e.setHint(hint);content.addView(e);return e;}
   void message(String text){new AlertDialog.Builder(this).setMessage(text).setPositiveButton("Tamam",null).show();}
   void home(){screen("CardVision AI");content.addView(label("Kartlarını keşfet, koleksiyonunu yönet",16,false));stat("Koleksiyonumdaki kartlar",String.valueOf(cards.length()));button("📷 Kart tara (OCR)",()->scan());button("＋ Kart ekle",()->add());button("▦ Koleksiyonum ("+cards.length()+")",()->collection(""));button("⌕ Kart ara",()->search());button("▤ Klasörler / etiketler",()->folders());button("✓ Set kontrol listesi",()->checklists());button("♡ İstek listem",()->wishlist());button("↧ JSON yedek içe aktar",()->importBackup());button("☆ Favoriler",()->favorites());button("◷ Portföy değeri",()->portfolio());button("⇧ Koleksiyonu paylaş",()->export());button("CSV dışa aktar",()->exportCsv());button("Satış ilanı taslaklarım",()->listings());button("⚙ Entegrasyon durumu",()->status());button(dark?"☀ Açık tema":"☾ Koyu tema",()->{dark=!dark;prefs.edit().putBoolean("dark",dark).apply();home();});}
-  void scan(){screen("Kart tara");content.addView(label("Kartın fotoğrafını galeriden seç. Cihaz üzerinde yazılar okunacak; oyuncu ve kart varyantı otomatik doğrulanmaz.",16,false));button("Fotoğraf seç",()->{Intent i=new Intent(Intent.ACTION_GET_CONTENT);i.setType("image/*");startActivityForResult(Intent.createChooser(i,"Kart fotoğrafı"),401);});button("← Ana sayfa",()->home());}
-  @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=401||result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();try{InputImage image=InputImage.fromFilePath(this,uri);com.google.mlkit.vision.text.TextRecognizer recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);recognizer.process(image).addOnSuccessListener(text->{screen("Okunan kart yazıları");String value=text.getText();content.addView(label(value.isEmpty()?"Yazı bulunamadı.":"OCR sonucu:\\n"+value,16,false));button("Kartı koleksiyona ekle",()->addFromScan(value));button("← Ana sayfa",()->home());recognizer.close();}).addOnFailureListener(err->{message("OCR hatası: "+err.getMessage());recognizer.close();});}catch(Exception e){message("Fotoğraf açılamadı: "+e.getMessage());}}
+  void scan(){screen("Kart tara");content.addView(label("Kartın fotoğrafını galeriden seç. Cihaz üzerinde yazılar okunacak; oyuncu ve kart varyantı otomatik doğrulanmaz.",16,false));button("Kamera ile çek",()->{Intent camera=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);try{startActivityForResult(camera,402);}catch(android.content.ActivityNotFoundException e){message("Kamera uygulaması bulunamadı");}});button("Fotoğraf seç",()->{Intent i=new Intent(Intent.ACTION_GET_CONTENT);i.setType("image/*");startActivityForResult(Intent.createChooser(i,"Kart fotoğrafı"),401);});button("← Ana sayfa",()->home());}
+  @Override protected void onActivityResult(int request,int result,Intent data){
+    super.onActivityResult(request,result,data);
+    if(result!=RESULT_OK||data==null)return;
+    try{
+      InputImage image;
+      if(request==401){
+        Uri uri=data.getData();
+        if(uri==null){message("Fotoğraf seçilmedi");return;}
+        image=InputImage.fromFilePath(this,uri);
+      }else if(request==402){
+        Object thumb=data.getExtras()==null?null:data.getExtras().get("data");
+        if(!(thumb instanceof Bitmap)){message("Kamera fotoğrafı alınamadı");return;}
+        image=InputImage.fromBitmap((Bitmap)thumb,0);
+      }else return;
+      com.google.mlkit.vision.text.TextRecognizer recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+      recognizer.process(image).addOnSuccessListener(resultText->{
+        String value=resultText.getText();
+        screen("Okunan kart yazıları");
+        content.addView(label(value.isEmpty()?"Yazı bulunamadı. Daha net bir fotoğraf dene.":"OCR sonucu:\\n"+value,16,false));
+        if(!value.trim().isEmpty())button("Kartı koleksiyona ekle",()->addFromScan(value));
+        button("← Tekrar tara",()->scan());
+      }).addOnFailureListener(err->message("OCR hatası: "+err.getMessage()))
+        .addOnCompleteListener(task->recognizer.close());
+    }catch(Exception e){message("Fotoğraf işlenemedi: "+e.getMessage());}
+  }
   void addFromScan(String value){screen("Taramadan kart ekle");EditText name=field("Kart adı / oyuncu"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),price=field("Tahmini değer (USD)");CardTextParser parsed=CardTextParser.parse(value);name.setText(parsed.name);sport.setText(parsed.category.equals("Belirsiz")?"":parsed.category);brand.setText(parsed.brand);year.setText(parsed.year);number.setText(parsed.number);content.addView(label("OCR tahmini: Lütfen kart adını, yılı ve numarasını kontrol et. Katalog eşleşmesi doğrulanmadı.",14,false));button("Koleksiyona kaydet",()->{if(name.getText().toString().trim().isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",name.getText().toString().trim());o.put("sport",sport.getText().toString());o.put("brand",brand.getText().toString());o.put("year",year.getText().toString());o.put("number",number.getText().toString());o.put("price",price.getText().toString());o.put("ocr",value);o.put("favorite",false);String key=o.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+o.optString("year")+"|"+o.optString("number");boolean duplicate=false;for(int i=0;i<cards.length();i++){JSONObject old=cards.optJSONObject(i);if(old!=null&&(old.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+old.optString("year")+"|"+old.optString("number")).equals(key)){duplicate=true;break;}}if(duplicate){new AlertDialog.Builder(this).setTitle("Benzer kart var").setMessage("Koleksiyonunda aynı isim, yıl ve numaraya sahip bir kart var. Yine de eklensin mi?").setNegativeButton("İptal",null).setPositiveButton("Ekle",(d,w)->{cards.put(o);save();home();}).show();}else{cards.put(o);save();home();}}catch(Exception e){message("Kaydedilemedi");}});}
   void add(){screen("Yeni kart");EditText name=field("Kart / oyuncu adı"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),variant=field("Varyant / parallel"),price=field("Tahmini değer (USD)"),cost=field("Alış fiyatı (USD)"),folder=field("Klasör"),notes=field("Notlar"),grade=field("Kondisyon / grading");button("Kartı kaydet",()->{String n=name.getText().toString().trim();if(n.isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",n);o.put("sport",sport.getText());o.put("brand",brand.getText());o.put("year",year.getText());o.put("number",number.getText());o.put("variant",variant.getText());o.put("price",price.getText().toString());o.put("cost",cost.getText().toString());o.put("folder",folder.getText().toString());o.put("notes",notes.getText().toString());o.put("grade",grade.getText().toString());o.put("favorite",false);cards.put(o);save();home();}catch(Exception e){message("Kaydedilemedi");}});button("← Geri",()->home());}
   void search(){screen("Kart ara");EditText q=field("Oyuncu, marka, yıl, seri");button("Ara",()->collection(q.getText().toString()));button("← Geri",()->home());}
