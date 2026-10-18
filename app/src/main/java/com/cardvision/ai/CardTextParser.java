@@ -12,18 +12,20 @@ public final class CardTextParser {
   }
   public static CardTextParser parse(String input){
     String raw=input==null?"":input.trim();
+    String low=raw.toLowerCase(Locale.ROOT);
     String year=match(raw,"\\b(?:19[5-9][0-9]|20[0-3][0-9])\\b");
     // OCR frequently reads card numbers as "Card No. 12", "#12", or "12/250".
     String number=match(raw,"(?i)(?:\\bcard\\s*(?:no\\.?|number|#)|\\bno\\.?|\\bnumber|#)\\s*[:#-]?\\s*([A-Z0-9][A-Z0-9-]{0,11})\\b");
-    if(number.isEmpty())number=match(raw,"(?i)\\b([A-Z]?[0-9]{1,3}[A-Z]?)\\s*/\\s*[0-9]{1,4}\\b");
+    if(number.isEmpty())number=match(raw,"(?i)\\b([A-Z]{0,4}[0-9]{1,4}[A-Z]?)\\s*/\\s*[A-Z]{0,4}[0-9]{1,4}\\b");
     String[] brands={"Topps","Panini","Upper Deck","Bowman","Donruss","Prizm","Select","Optic","Fleer","Pokémon","Pokemon","Magic","Yu-Gi-Oh"};
     String brand="";
     for(String b:brands){
+      // "Magic Johnson" is a player, not evidence of the MTG brand.
+      if(b.equals("Magic") && !(low.contains("magic: the gathering")||low.contains("planeswalker")||low.contains("wizards of the coast")||low.contains("mtg")))continue;
       Pattern p=Pattern.compile("(?iu)(?<![\\p{L}\\p{N}])"+Pattern.quote(b)+"(?![\\p{L}\\p{N}])");
       if(p.matcher(raw).find()){brand=b;break;}
     }
     String category="Belirsiz";
-    String low=raw.toLowerCase(Locale.ROOT);
     if(low.contains("pokemon")||low.contains("pokémon")||low.contains("hp "))category="Pokémon";
     else if(low.contains("yu-gi-oh")||low.contains("atk/")||low.contains("def/"))category="Yu-Gi-Oh!";
     else if(low.contains("magic: the gathering")||low.contains("planeswalker"))category="Magic: The Gathering";
@@ -32,10 +34,11 @@ public final class CardTextParser {
     else if(low.contains("mlb")||low.contains("baseball"))category="Beyzbol";
     String name="";
     for(String line:raw.split("\\R")){
-      String v=line.trim();
+      String v=line.trim().replaceAll("\\s+"," ");
       if(v.length()<3||v.length()>64||!v.matches(".*[\\p{L}].*"))continue;
       if(v.matches(".*\\b(?:19[5-9][0-9]|20[0-3][0-9])\\b.*"))continue;
       if(v.matches("(?i)^(?:card\\s*)?(?:no\\.?|number|#)\\s*[:#-]?\\s*[a-z0-9/-]+$"))continue;
+      if(v.matches("(?iu)^(?:basic(?:\\s+pok[eé]mon)?|stage\\s*[12]|trainer|supporter|item|stadium|energy|pok[eé]mon|rare|common|uncommon|holo(?:graphic)?|reverse\\s+holo|magic:\\s*the\\s*gathering|planeswalker|hp\\s*\\d{1,4}|\\d{1,4}\\s*hp|atk\\s*/\\s*\\d+|def\\s*/\\s*\\d+)$"))continue;
       if(v.matches("(?i)^(?:(?:topps|panini|prizm|upper|deck|bowman|donruss|select|optic|fleer|nba|nfl|mlb|pokemon|pokémon|yu-gi-oh)\\s*)+$"))continue;
       name=v;break;
     }
