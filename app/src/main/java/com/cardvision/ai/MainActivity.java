@@ -63,8 +63,38 @@ public class MainActivity extends Activity {
   }
   void addFromScan(String value){screen("Taramadan kart ekle");EditText name=field("Kart adı / oyuncu"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),price=field("Tahmini değer (USD)");CardTextParser parsed=CardTextParser.parse(value);name.setText(parsed.name);sport.setText(parsed.category.equals("Belirsiz")?"":parsed.category);brand.setText(parsed.brand);year.setText(parsed.year);number.setText(parsed.number);content.addView(label("OCR tahmini: Lütfen kart adını, yılı ve numarasını kontrol et. Katalog eşleşmesi doğrulanmadı.",14,false));button("Koleksiyona kaydet",()->{if(name.getText().toString().trim().isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",name.getText().toString().trim());o.put("sport",sport.getText().toString());o.put("brand",brand.getText().toString());o.put("year",year.getText().toString());o.put("number",number.getText().toString());o.put("price",price.getText().toString());o.put("ocr",value);o.put("favorite",false);String key=o.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+o.optString("year")+"|"+o.optString("number");boolean duplicate=false;for(int i=0;i<cards.length();i++){JSONObject old=cards.optJSONObject(i);if(old!=null&&(old.optString("name").trim().toLowerCase(Locale.ROOT)+"|"+old.optString("year")+"|"+old.optString("number")).equals(key)){duplicate=true;break;}}if(duplicate){new AlertDialog.Builder(this).setTitle("Benzer kart var").setMessage("Koleksiyonunda aynı isim, yıl ve numaraya sahip bir kart var. Yine de eklensin mi?").setNegativeButton("İptal",null).setPositiveButton("Ekle",(d,w)->{cards.put(o);save();home();}).show();}else{cards.put(o);save();home();}}catch(Exception e){message("Kaydedilemedi");}});}
   void add(){screen("Yeni kart");EditText name=field("Kart / oyuncu adı"),sport=field("Spor veya TCG"),brand=field("Marka / set"),year=field("Yıl"),number=field("Kart numarası"),variant=field("Varyant / parallel"),price=field("Tahmini değer (USD)"),cost=field("Alış fiyatı (USD)"),folder=field("Klasör"),notes=field("Notlar"),grade=field("Kondisyon / grading");button("Kartı kaydet",()->{String n=name.getText().toString().trim();if(n.isEmpty()){message("Kart adı gerekli");return;}try{JSONObject o=new JSONObject();o.put("id",UUID.randomUUID().toString());o.put("name",n);o.put("sport",sport.getText());o.put("brand",brand.getText());o.put("year",year.getText());o.put("number",number.getText());o.put("variant",variant.getText());o.put("price",price.getText().toString());o.put("cost",cost.getText().toString());o.put("folder",folder.getText().toString());o.put("notes",notes.getText().toString());o.put("grade",grade.getText().toString());o.put("favorite",false);cards.put(o);save();home();}catch(Exception e){message("Kaydedilemedi");}});button("← Geri",()->home());}
-  void search(){screen("Kart ara");EditText q=field("Oyuncu, marka, yıl, seri");button("Ara",()->collection(q.getText().toString()));button("← Geri",()->home());}
-  void collection(String query){screen("Koleksiyonum");int count=0;for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o==null||!o.toString().toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT)))continue;count++;final String id=o.optString("id");content.addView(label(o.optString("name")+"  ·  "+o.optString("year")+" "+o.optString("brand")+"  ·  $"+o.optString("price"),17,true));content.addView(label("Klasör: "+o.optString("folder","—")+"  •  Kondisyon: "+o.optString("grade","—")+"\nNot: "+o.optString("notes",""),13,false));button("☆ Favori / kaldır",()->toggle(id));button("Kartı düzenle",()->edit(id));button("İstek listesine ekle",()->wishAdd(id));button("Sil",()->delete(id));}if(count==0)content.addView(label("Henüz eşleşen kart yok.",15,false));button("＋ Yeni kart",()->add());button("← Ana sayfa",()->home());}
+  void search(){screen("Gelişmiş kart arama");EditText q=field("Kart, oyuncu, marka, yıl, numara");EditText category=field("Spor / kategori (isteğe bağlı)");EditText folder=field("Klasör (isteğe bağlı)");button("Ara",()->collectionFiltered(q.getText().toString(),category.getText().toString(),folder.getText().toString(),"Ad (A-Z)"));button("← Ana sayfa",()->home());}
+  void collection(String query){collectionFiltered(query,"","","Ad (A-Z)");}
+  void collectionFiltered(String query,String category,String folder,String order){
+    screen("Koleksiyonum");
+    ArrayList<JSONObject> matches=new ArrayList<>();
+    for(int i=0;i<cards.length();i++){
+      JSONObject o=cards.optJSONObject(i);if(o==null)continue;
+      String q=query.toLowerCase(Locale.ROOT),c=category.toLowerCase(Locale.ROOT),f=folder.toLowerCase(Locale.ROOT);
+      if(!(o.optString("name")+" "+o.optString("brand")+" "+o.optString("year")+" "+o.optString("number")+" "+o.optString("variant")).toLowerCase(Locale.ROOT).contains(q))continue;
+      if(!o.optString("sport").toLowerCase(Locale.ROOT).contains(c)||!o.optString("folder").toLowerCase(Locale.ROOT).contains(f))continue;
+      matches.add(o);
+    }
+    Comparator<JSONObject> sorter=(x,y)->x.optString("name").compareToIgnoreCase(y.optString("name"));
+    if(order.equals("Ad (Z-A)"))sorter=sorter.reversed();
+    else if(order.equals("Yıl (yeni)"))sorter=(x,y)->y.optString("year").compareTo(x.optString("year"));
+    else if(order.equals("Fiyat (yüksek)"))sorter=(x,y)->Double.compare(amount(y.optString("price")),amount(x.optString("price")));
+    Collections.sort(matches,sorter);
+    content.addView(label("Bulunan kart: "+matches.size(),15,false));
+    button("Sıralama: "+order,()->new AlertDialog.Builder(this).setTitle("Sıralama").setItems(new String[]{"Ad (A-Z)","Ad (Z-A)","Yıl (yeni)","Fiyat (yüksek)"},(d,which)->collectionFiltered(query,category,folder,new String[]{"Ad (A-Z)","Ad (Z-A)","Yıl (yeni)","Fiyat (yüksek)"}[which])).show());
+    for(JSONObject o:matches){
+      final String id=o.optString("id");
+      content.addView(label(o.optString("name")+"  ·  "+o.optString("year")+" "+o.optString("brand")+"  ·  $"+o.optString("price"),17,true));
+      content.addView(label("Klasör: "+o.optString("folder","—")+"  •  Kondisyon: "+o.optString("grade","—")+"\\nNot: "+o.optString("notes",""),13,false));
+      button("☆ Favori / kaldır",()->toggle(id));
+      button("Kartı düzenle",()->edit(id));
+      button("İstek listesine ekle",()->wishAdd(id));
+      button("Sil",()->delete(id));
+    }
+    if(matches.isEmpty())content.addView(label("Henüz eşleşen kart yok.",15,false));
+    button("＋ Yeni kart",()->add());button("⌕ Filtrele",()->search());button("← Ana sayfa",()->home());
+  }
+  double amount(String v){try{return Double.parseDouble(v.trim().replace(",","."));}catch(Exception e){return 0;}}
   void toggle(String id){for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o!=null&&id.equals(o.optString("id"))){try{o.put("favorite",!o.optBoolean("favorite"));}catch(Exception ignored){}break;}}save();collection("");}
   void delete(String id){new AlertDialog.Builder(this).setMessage("Kart silinsin mi?").setNegativeButton("İptal",null).setPositiveButton("Sil",(d,w)->{JSONArray next=new JSONArray();for(int i=0;i<cards.length();i++){JSONObject o=cards.optJSONObject(i);if(o!=null&&!id.equals(o.optString("id")))next.put(o);}cards=next;save();collection("");}).show();}
   JSONArray wishData(){try{return new JSONArray(prefs.getString("wish_items","[]"));}catch(Exception e){return new JSONArray();}}
